@@ -6,34 +6,40 @@ import os
 import tempfile
 from pathlib import Path
 from typing import Optional, Tuple
+from io import BytesIO
 
-import langdetect
 import streamlit as st
 from gtts import gTTS
 from googletrans import Translator as _GoogleTranslator, LANGUAGES as GOOGLE_LANGUAGES
-from langdetect import detect
 import speech_recognition as sr
-import sounddevice as sd
-import numpy as np
-import scipy.io.wavfile as wav
 
-# ---------- Constants ----------
 HISTORY_FILE = Path.home() / ".translator_history.json"
 SUPPORTED_PROVIDERS = ("Google", "OpenAI")
-UPLOAD_DIR = Path(tempfile.gettempdir()) / "translator_uploads"
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+LANGUAGE_OPTIONS = {v.title(): k for k, v in GOOGLE_LANGUAGES.items()}
+TTS_LANG_MAP = {
+    "zh-cn": "zh",
+    "zh-tw": "zh-TW",
+    "pt-br": "pt",
+    "en-us": "en",
+    "en-gb": "en",
+    "es": "es",
+    "fr": "fr",
+    "de": "de",
+    "hi": "hi",
+    "ja": "ja",
+    "ko": "ko",
+    "ru": "ru",
+    "it": "it",
+    "ar": "ar"
+}
 
-# ---------- Helper Classes ----------
 class GoogleProvider:
     def __init__(self):
         self.translator = _GoogleTranslator()
 
     def translate(self, text: str, dest_lang: str) -> Tuple[str, str]:
-        src_lang = detect(text)
-        if dest_lang not in GOOGLE_LANGUAGES:
-            raise ValueError(f"Language not supported: {dest_lang}")
-        result = self.translator.translate(text, src=src_lang, dest=dest_lang)
-        return src_lang, result.text
+        result = self.translator.translate(text, src='auto', dest=dest_lang)
+        return result.src, result.text
 
 
 class OpenAIProvider:
@@ -44,11 +50,8 @@ class OpenAIProvider:
         self.client = openai
 
     def translate(self, text: str, dest_lang: str) -> Tuple[str, str]:
-        src_lang = detect(text)
         prompt = (
-            f"Translate the following text from {src_lang} to {dest_lang}. "
-            "Do not explain, just reply with the translated text.\n\n"
-            f"{text}"
+            f"Translate the following text to {dest_lang}. Do not explain, just reply with the translated text:\n\n{text}"
         )
         response = self.client.ChatCompletion.create(
             model=self.model,
@@ -56,22 +59,19 @@ class OpenAIProvider:
             temperature=0.2,
         )
         translated = response.choices[0].message.content.strip()
-        return src_lang, translated
+        return "auto", translated
 
 
-# ---------- Services ----------
-def speak_text(text: str, lang: str = "en") -> bytes:
+def speak_text_bytes(text: str, lang: str = "en") -> Optional[BytesIO]:
     try:
-        tts = gTTS(text=text, lang=lang)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
-            tts.save(tmp.name)
-            tmp.seek(0)
-            audio_bytes = tmp.read()
-        os.unlink(tmp.name)
+        tts_lang = TTS_LANG_MAP.get(lang.lower(), lang[:2])
+        tts = gTTS(text=text, lang=tts_lang)
+        audio_bytes = BytesIO()
+        tts.write_to_fp(audio_bytes)
+        audio_bytes.seek(0)
         return audio_bytes
     except Exception:
-        return b""
-
+        return None
 
 def save_history(src_lang: str, dest_lang: str, src_text: str, dest_text: str, provider: str):
     HISTORY_FILE.touch(exist_ok=True)
@@ -92,7 +92,6 @@ def save_history(src_lang: str, dest_lang: str, src_text: str, dest_text: str, p
     data.append(entry)
     HISTORY_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
-
 def load_history(limit: int = 20):
     if not HISTORY_FILE.exists():
         return []
@@ -102,40 +101,28 @@ def load_history(limit: int = 20):
     except (json.JSONDecodeError, OSError):
         return []
 
-
-def transcribe_audio(file_path: str, lang_code: str = "en") -> str:
+def listen_microphone(lang_code: str = "en") -> str:
     recognizer = sr.Recognizer()
-    with sr.AudioFile(file_path) as source:
-        audio = recognizer.record(source)
-        try:
+    try:
+        with sr.Microphone() as source:
+            st.info("🎙️ Listening... Speak now")
+            recognizer.adjust_for_ambient_noise(source)
+            audio = recognizer.listen(source, timeout=5)
             lang_map = {
                 "en": "en-US", "hi": "hi-IN", "es": "es-ES", "fr": "fr-FR", "de": "de-DE",
                 "zh": "zh-CN", "ja": "ja-JP", "ko": "ko-KR", "it": "it-IT", "ru": "ru-RU"
             }
             recog_lang = lang_map.get(lang_code.lower(), "en-US")
             return recognizer.recognize_google(audio, language=recog_lang)
-        except sr.UnknownValueError:
-            return ""
-        except sr.RequestError as e:
-            return f"Speech recognition failed: {e}"
-
-
-def record_microphone(duration: int = 5, samplerate: int = 16000) -> Optional[str]:
-    try:
-        st.info("🎙️ Recording... Please speak clearly.")
-        audio = sd.rec(int(duration * samplerate), samplerate=samplerate, channels=1, dtype='int16')
-        sd.wait()
-        file_path = str(UPLOAD_DIR / "mic_input.wav")
-        wav.write(file_path, samplerate, audio)
-        return file_path
+    except sr.UnknownValueError:
+        return ""
+    except sr.RequestError as e:
+        return f"Speech recognition failed: {e}"
     except Exception as e:
-        st.error(f"Microphone recording failed: {e}")
-        return None
+        return f"Microphone error: {e}"
 
-
-# ---------- Streamlit UI ----------
 st.set_page_config(page_title="AI Translator", page_icon="🌍", layout="centered")
-st.title("🌍 AI Language Translator (Accessible & Advanced)")
+st.title("🌍 AI Language Translator ")
 
 with st.sidebar:
     st.header("Settings")
@@ -155,41 +142,32 @@ if provider == "Google":
 elif provider == "OpenAI":
     translator = OpenAIProvider(api_key=openai_key)
 
-st.subheader("Enter, Upload, or Speak Text")
-input_text = st.text_area("Text to translate", value="")
-target_lang = st.text_input("Target language code (e.g., en, es, fr, hi)", value="en")
+st.subheader("Text or Mic Input")
 
-# Audio Upload Option
-uploaded_audio = st.file_uploader("Upload a speech file (WAV format)", type=["wav"])
-if uploaded_audio:
-    file_path = str(UPLOAD_DIR / uploaded_audio.name)
-    with open(file_path, "wb") as f:
-        f.write(uploaded_audio.read())
-    transcribed = transcribe_audio(file_path, target_lang)
-    if transcribed:
-        st.success("Audio transcribed successfully!")
-        st.text_area("Recognized speech:", transcribed, key="recognized")
-        input_text = transcribed
-    else:
-        st.error("Could not transcribe audio.")
+col1, col2 = st.columns([2, 1])
 
-# Microphone Recording Option
-if st.button("🎤 Record from Microphone"):
-    mic_path = record_microphone(duration=5)
-    if mic_path:
-        transcribed = transcribe_audio(mic_path, target_lang)
-        if transcribed:
-            st.success("Microphone input transcribed successfully!")
-            st.text_area("Recognized speech:", transcribed, key="mic_text")
-            input_text = transcribed
+with col1:
+    input_text = st.text_area("Text to translate", value="")
+
+with col2:
+    if st.button("🎤 Speak"):
+        mic_text = listen_microphone()
+        if mic_text:
+            st.success("Mic captured:")
+            st.write(mic_text)
+            input_text = mic_text
         else:
-            st.error("Could not transcribe microphone input.")
+            st.error("Could not understand audio.")
+
+lang_display_names = sorted(LANGUAGE_OPTIONS.keys())
+selected_lang_display = st.selectbox("Target Language", lang_display_names, index=lang_display_names.index("English"))
+target_lang = LANGUAGE_OPTIONS[selected_lang_display]
 
 if st.button("Translate"):
     if not input_text.strip():
-        st.error("Please enter, upload, or record text.")
+        st.error("Please enter or speak text to translate.")
     elif not target_lang.strip():
-        st.error("Please enter a target language code.")
+        st.error("Please select a target language.")
     else:
         with st.spinner("Translating..."):
             try:
@@ -199,7 +177,7 @@ if st.button("Translate"):
                 st.write("**Translated text:**")
                 st.write(translated_text)
                 save_history(src_lang, target_lang, input_text, translated_text, provider)
-                audio_bytes = speak_text(translated_text, lang=target_lang)
+                audio_bytes = speak_text_bytes(translated_text, lang=target_lang)
                 if audio_bytes and auto_play_audio:
                     st.audio(audio_bytes, format="audio/mp3", start_time=0)
             except Exception as e:
@@ -216,26 +194,5 @@ with st.expander("📜 Translation History"):
             st.write(f"**Output:** {item['dest_text']}")
             st.markdown("---")
 
-st.caption("© 2025 AI Translator – Built for accessibility and real-world impact 🧠💬")
-
-"""
-An AI‑powered language translator with these enhanced features:
-
-• Translate between 100+ languages using:
-    – Google Translate
-    – OpenAI GPT (context‑aware, requires API key)
-
-• Upload and transcribe audio (WAV) or speak directly via microphone – supports visually impaired users
-
-• Text‑to-speech output (auto-play enabled by default, can be toggled off)
-
-• Translation history (stored locally in JSON)
-
-• Streamlit web UI (Run via: streamlit run advanced_translator.py)
-
-• Accessible design: no typing needed if speech input is used
-
-Tested on Python 3.11.7.
-
-Authors: Pranay Nigam & Abhishek Maurya (Enhanced by ChatGPT) – July 2025
-"""
+st.caption("© 2025 AI Translator – Accessible Speech & Text Translator built with Python.")
+st.caption("Author:- Pranay Nigam and Abhishek Maurya")
