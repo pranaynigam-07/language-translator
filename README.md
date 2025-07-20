@@ -1,38 +1,55 @@
-# 🌍 AI Language Translator — Accessible & Advanced
+# 🌍 AI Language Translator: Accessible, Multi-Functional Speech & Translation App
 
-An intelligent, voice-enabled translation tool that empowers seamless communication across 100+ languages. Designed with accessibility in mind — including features for users with disabilities — this app combines **speech recognition**, **machine translation**, and **text-to-speech** using Google and OpenAI APIs.
+AI Language Translator is an intuitive and inclusive application designed to assist people — especially those who are mute or visually impaired — in breaking language barriers using advanced translation, speech recognition, and speech synthesis technologies. Built using Python, Streamlit, Google Translate API, OpenAI GPT, and gTTS, this tool delivers real-time multilingual support with a user-friendly interface.
 
 ---
 
 ## 🚀 Features
 
-✅ Translate text between 100+ languages  
-✅ Choose between **Google Translate** or **OpenAI GPT (context-aware)**  
-✅ **Speech-to-text** via:
-- 🎤 Microphone (ideal for visually impaired users)
-- 📂 Audio file uploads (WAV format)
+### 1. **Multilingual Translation (Text & Speech)**
 
-✅ **Text-to-speech** for translated output (auto-play enabled by default)  
-✅ Persistent **translation history** (stored locally in JSON)  
-✅ User-friendly **Streamlit UI** — no typing required when using voice input  
-✅ Works offline (for TTS/mic transcription) and online  
-✅ Built with Python 3.11.7
+- Translate typed text or recognized speech into over **100+ languages**.
+- Auto-detects source language.
+- Supports both **Google Translate** and **OpenAI GPT (context-aware)**.
+- Output translated speech in real-time.
+
+### 2. **Speech-to-Text (STT)**
+
+- 🎤 Record speech directly using the system microphone.
+- 📂 Upload `.wav` audio files for transcription.
+- Converts voice input into editable text for translation.
+
+### 3. **Text-to-Speech (TTS)**
+
+- Synthesizes translated text into speech using `gTTS`.
+- Auto-plays the result for immediate listening.
+- Option to disable autoplay for custom control.
+
+### 4. **Translation History**
+
+- Saves all translations with timestamps, source/target languages, and providers.
+- Easily review and reuse previous translations.
 
 ---
 
-## 🧠 Ideal For
+## ⚙️ How It Works
 
-- 🧏 Users with hearing/speech impairments  
-- 🌐 Travelers & multilingual communicators  
-- 🧪 Language learners and educators  
-- ♿ Assistive tech applications
+### 1. **Installation**
 
----
+Make sure you have **Python 3.8+** installed.
 
-## 🔧 Setup Instructions
-
-### <h2>1. Clone the repository</h2>
+Install the dependencies using pip:
 
 ```bash
-git clone https://github.com/yourusername/ai-translator.git
-cd ai-translator
+pip install streamlit gTTS googletrans==4.0.0-rc1 langdetect openai SpeechRecognition sounddevice scipy
+```
+### 2. **Running the Application**
+Run the app using Streamlit:
+
+```bash
+Copy
+Edit
+streamlit run advanced_translator.py
+```
+
+
